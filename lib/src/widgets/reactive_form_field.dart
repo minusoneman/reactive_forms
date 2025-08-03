@@ -23,6 +23,9 @@ typedef ValidationMessageFunction = String Function(Object error);
 /// Signature of a callback that provides the control as argument.
 typedef ReactiveFormFieldCallback<T> = void Function(FormControl<T> control);
 
+/// Check for Bopomofo
+final bopomofoRegex = RegExp(r'[\u3105-\u312F]');
+
 /// A single reactive form field.
 ///
 /// This widget maintains the current state of the reactive form field,
@@ -213,8 +216,13 @@ class ReactiveFormFieldState<ModelDataType, ViewDataType>
   /// child widget changes.
   ///
   /// Updates the value of the [FormControl] bound to this widget.
+
   void didChange(ViewDataType? value) {
-    _valueAccessor.updateModel(value);
+    final string = value?.toString();
+    // Workaround for Bomomofo composition handling
+    if (string != null && !bopomofoRegex.hasMatch(string)) {
+      _valueAccessor.updateModel(value);
+    }
     _checkTouchedState();
   }
 
