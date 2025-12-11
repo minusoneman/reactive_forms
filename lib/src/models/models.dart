@@ -410,8 +410,7 @@ abstract class AbstractControl<T> {
       return;
     }
     _status = ControlStatus.valid;
-    updateValueAndValidity(updateParent: true, emitEvent: emitEvent);
-    _updateAncestors(updateParent);
+    updateValueAndValidity(updateParent: updateParent, emitEvent: emitEvent);
   }
 
   /// Disables the control.
@@ -840,7 +839,7 @@ abstract class AbstractControl<T> {
 
 /// Tracks the value and validation status of an individual form control.
 class FormControl<T> extends AbstractControl<T> {
-  final T? _initialValue;
+  T? _defaultValue;
   final _focusChanges = StreamController<bool>.broadcast();
   FocusController? _focusController;
   bool _hasFocus = false;
@@ -848,6 +847,13 @@ class FormControl<T> extends AbstractControl<T> {
   /// Creates a new FormControl instance.
   ///
   /// The control can optionally be initialized with a [value].
+  ///
+  /// The [nonNullable] argument is used to determine the state of the control
+  /// when the [reset] method is called without a value. If [nonNullable] is
+  /// true (the default), the [reset] method will reset the control to the
+  /// initial [value] provided in the constructor. If [nonNullable] is false,
+  /// the [reset] method will reset the control to `null` unless a value is
+  /// provided.
   ///
   /// The control can optionally have [validators] that validates
   /// the control each time the value changes.
@@ -859,10 +865,6 @@ class FormControl<T> extends AbstractControl<T> {
   /// forms to avoid potentially expensive async validation processes
   /// (such as an HTTP request) if the more basic validation methods have
   /// already found invalid input.
-  ///
-  /// You can set an [asyncValidatorsDebounceTime] in millisecond to set
-  /// a delay time before trigger async validators. This is useful for
-  /// minimizing request to a server. The default value is 250 milliseconds.
   ///
   /// You can set [touched] as true to force the validation messages
   /// to show up at the very first time the widget that is bound to this
@@ -877,6 +879,7 @@ class FormControl<T> extends AbstractControl<T> {
   ///
   FormControl({
     T? value,
+    bool nonNullable = true,
     super.validators,
     super.asyncValidators,
     @Deprecated(
@@ -888,13 +891,23 @@ class FormControl<T> extends AbstractControl<T> {
     super.asyncValidatorsDebounceTime,
     super.touched,
     super.disabled,
-  }) : _initialValue = value {
+  }) : _defaultValue = nonNullable ? value : null {
     if (value != null) {
       this.value = value;
     } else {
       updateValueAndValidity();
     }
   }
+
+  /// Gets the default value of the control.
+  ///
+  /// This value is determined by the [value] and [nonNullable] arguments
+  /// passed to the constructor:
+  /// - If [nonNullable] is `true` (the default), this holds the initial [value].
+  /// - If [nonNullable] is `false`, this is `null`.
+  ///
+  /// When [reset] is called without a value, the control resets to this value.
+  T? get defaultValue => _defaultValue;
 
   /// True if the control is marked as focused.
   bool get hasFocus => _hasFocus;
@@ -1017,21 +1030,92 @@ class FormControl<T> extends AbstractControl<T> {
     }
   }
 
+  /// Resets the form control, marking it as untouched and pristine.
+  ///
+  /// If [value] is provided, the control is reset to that value.
+  ///
+  /// If [value] is not provided (null), the behavior depends on the [nonNullable]
+  /// argument passed to the constructor:
+  /// - If [nonNullable] is `true` (the default), the control resets to the
+  ///   initial value provided in the constructor.
+  /// - If [nonNullable] is `false`, the control resets to `null`.
+  ///
+  /// If [overwriteDefaultValue] is true, then the value used to reset the
+  /// control becomes the new default value of the control.
+  ///
+  /// The argument [disabled] is optional and resets the disabled status of the
+  /// control. If value is `true` then it will disable the control, if value is
+  /// `false` then it will enable the control, and if the value is `null` or
+  /// not set (the default) then the control will state in the same state that
+  /// it previously was.
+  ///
+  /// The argument [removeFocus] is optional and remove the UI focus from the
+  /// control.
+  ///
+  /// When [updateParent] is true or not supplied (the default) each change
+  /// affects this control and its parent, otherwise only affects to this
+  /// control.
+  ///
+  /// When [emitEvent] is true or not supplied (the default), both the
+  /// *statusChanges* and *valueChanges* events notify listeners with the
+  /// latest status and value when the control is reset. When false, no events
+  /// are emitted.
+  ///
+  /// ### Examples
+  ///
+  /// **Reset to a specific value**
+  /// ```dart
+  /// final control = FormControl<String>();
+  ///
+  /// control.reset(value: 'John Doe');
+  ///
+  /// print(control.value); // output: 'John Doe'
+  /// ```
+  ///
+  /// **Reset to initial value (nonNullable: true)**
+  /// ```dart
+  /// // nonNullable is true by default
+  /// final control = FormControl<String>(value: 'Initial Value');
+  ///
+  /// control.value = 'New Value';
+  ///
+  /// // Resets to 'Initial Value' because no value was provided
+  /// // and nonNullable is true.
+  /// control.reset();
+  ///
+  /// print(control.value); // output: 'Initial Value'
+  /// ```
+  ///
+  /// **Reset to null (nonNullable: false)**
+  /// ```dart
+  /// final control = FormControl<String>(
+  ///   value: 'Initial Value',
+  ///   nonNullable: false,
+  /// );
+  ///
+  /// control.value = 'New Value';
+  ///
+  /// // Resets to null because no value was provided
+  /// // and nonNullable is false.
+  /// control.reset();
+  ///
+  /// print(control.value); // output: null
+  ///
   @override
   void reset({
     T? value,
+    bool overwriteDefaultValue = false,
     bool updateParent = true,
     bool emitEvent = true,
     bool removeFocus = false,
     bool? disabled,
   }) {
-    // If `value` is null, it implies either `reset()` was called (no explicit value)
-    // or `reset(value: null)` was called.
-    // In line with "If no value is provided it should assign the initial value",
-    // we use `_initialValue` when `value` is `null`.
-    // If `value` is explicitly provided and not null, we use that.
+    if (overwriteDefaultValue) {
+      _defaultValue = value;
+    }
+
     super.reset(
-      value: value ?? _initialValue,
+      value: value ?? _defaultValue,
       updateParent: updateParent,
       emitEvent: emitEvent,
       removeFocus: removeFocus,
@@ -1161,6 +1245,53 @@ abstract class FormControlCollection<T> extends AbstractControl<T> {
     });
 
     return result;
+  }
+
+  /// Enables the control.
+  ///
+  /// This means the control is included in validation checks and the aggregate
+  /// value of its parent. Its status recalculates based on its value and its
+  /// validators.
+  ///
+  /// When [updateParent] is false, mark only this control.
+  /// When true or not supplied (the default), marks all direct ancestors.
+  ///
+  /// When [emitEvent] is true or not supplied (the default), [valueChanges]
+  /// and [statusChanged] events are emitted if value or status change.
+  /// Otherwise the control update this values but none of this events are
+  /// emitted.
+  @override
+  void markAsEnabled({bool updateParent = true, bool emitEvent = true}) {
+    forEachChild((control) {
+      control.markAsEnabled(updateParent: false, emitEvent: emitEvent);
+    });
+
+    updateValueAndValidity(updateParent: updateParent, emitEvent: emitEvent);
+  }
+
+  /// Disables the control.
+  ///
+  /// This means the control is exempt from validation checks and excluded
+  /// from the aggregate value of any parent. Its status is `DISABLED`.
+  ///
+  /// If the control has children, all children are also disabled.
+  ///
+  /// When [updateParent] is false, mark only this control.
+  /// When true or not supplied (the default), marks all direct ancestors.
+  ///
+  /// When [emitEvent] is true or not supplied (the default), [valueChanges]
+  /// and [statusChanged] events are emitted if value or status change.
+  /// Otherwise the control update this values but none of this events are
+  /// emitted.
+  @override
+  void markAsDisabled({bool updateParent = true, bool emitEvent = true}) {
+    forEachChild((control) {
+      control.markAsDisabled(updateParent: false, emitEvent: emitEvent);
+    });
+
+    _errors.clear();
+
+    updateValueAndValidity(updateParent: updateParent, emitEvent: emitEvent);
   }
 }
 
@@ -1348,49 +1479,6 @@ class FormGroup extends FormControlCollection<Map<String, Object?>> {
   @override
   set value(Map<String, Object?>? value) {
     updateValue(value);
-  }
-
-  /// Disables the control.
-  ///
-  /// This means the control is exempt from validation checks and excluded
-  /// from the aggregate value of any parent. Its status is `DISABLED`.
-  ///
-  /// If the control has children, all children are also disabled.
-  ///
-  /// When [updateParent] is false, mark only this control.
-  /// When true or not supplied (the default), marks all direct ancestors.
-  ///
-  /// When [emitEvent] is true or not supplied (the default), [valueChanges]
-  /// and [statusChanged] events are emitted if value or status change.
-  /// Otherwise the control update this values but none of this events are
-  /// emitted.
-  @override
-  void markAsDisabled({bool updateParent = true, bool emitEvent = true}) {
-    _controls.forEach((_, control) {
-      control.markAsDisabled(updateParent: true, emitEvent: emitEvent);
-    });
-    super.markAsDisabled(updateParent: updateParent, emitEvent: emitEvent);
-  }
-
-  /// Enables the control.
-  ///
-  /// This means the control is included in validation checks and the aggregate
-  /// value of its parent. Its status recalculates based on its value and its
-  /// validators.
-  ///
-  /// When [updateParent] is false, mark only this control.
-  /// When true or not supplied (the default), marks all direct ancestors.
-  ///
-  /// When [emitEvent] is true or not supplied (the default), [valueChanges]
-  /// and [statusChanged] events are emitted if value or status change.
-  /// Otherwise the control update this values but none of this events are
-  /// emitted.
-  @override
-  void markAsEnabled({bool updateParent = true, bool emitEvent = true}) {
-    _controls.forEach((_, control) {
-      control.markAsEnabled(updateParent: true, emitEvent: emitEvent);
-    });
-    super.markAsEnabled(updateParent: updateParent, emitEvent: emitEvent);
   }
 
   /// Appends all [controls] to the group.
@@ -1787,29 +1875,23 @@ class FormArray<T> extends FormControlCollection<List<T?>> {
   /// and value when the control is reset. When false, no events are emitted.
   @override
   void markAsDisabled({bool updateParent = true, bool emitEvent = true}) {
-    for (final control in _controls) {
-      control.markAsDisabled(updateParent: true, emitEvent: emitEvent);
+    if (disabled) {
+      return;
     }
-    super.markAsDisabled(updateParent: updateParent, emitEvent: emitEvent);
-  }
 
-  /// Enables the control. This means the control is included in validation
-  /// checks and the aggregate value of its parent. Its status recalculates
-  /// based on its value and its validators.
-  ///
-  /// When [updateParent] is true or not supplied (the default) each change
-  /// affects this control and its parent, otherwise only affects to this
-  /// control.
-  ///
-  /// When [emitEvent] is true or not supplied (the default), both the
-  /// *statusChanges* and *valueChanges* emit events with the latest status
-  /// and value when the control is reset. When false, no events are emitted.
-  @override
-  void markAsEnabled({bool updateParent = true, bool emitEvent = true}) {
-    forEachChild((control) {
-      control.markAsEnabled(updateParent: true, emitEvent: emitEvent);
-    });
-    super.markAsEnabled(updateParent: updateParent, emitEvent: emitEvent);
+    for (final control in _controls) {
+      control.markAsDisabled(updateParent: false, emitEvent: emitEvent);
+    }
+
+    _status = ControlStatus.disabled;
+    _updateValue();
+
+    if (emitEvent) {
+      _valueChanges.add(value);
+      _statusChanges.add(_status);
+    }
+
+    _updateAncestors(updateParent);
   }
 
   /// Insert a [control] at the given [index] position.

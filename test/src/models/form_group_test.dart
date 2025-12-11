@@ -291,7 +291,11 @@ void main() {
       form.markAsEnabled();
 
       // Then: all controls are enabled
-      expect(form.controls.values.every((control) => control.enabled), true);
+      expect(
+        form.controls.values.every((control) => control.enabled),
+        true,
+        reason: "Not all controls are enabled",
+      );
     });
 
     test('Group valid when invalid control is disable', () {
